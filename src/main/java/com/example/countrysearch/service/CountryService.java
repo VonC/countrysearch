@@ -3,14 +3,14 @@ package com.example.countrysearch.service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.aggregation.*;
-import org.springframework.stereotype.Service; // Import for @Service
+import org.springframework.stereotype.Service;
 import static org.springframework.data.mongodb.core.aggregation.Aggregation.project;
 
 import com.example.countrysearch.model.Country;
 
 import java.util.List;
 
-@Service  // Annotation to mark this class as a Service
+@Service
 public class CountryService {
 
     @Autowired
@@ -18,32 +18,53 @@ public class CountryService {
 
     public List<Country> findCountriesByCity(String searchTerm) {
 
-        // Create AggregationExpression for 'filteredCities'
-        AggregationExpression filterCitiesExpression = ArrayOperators.Filter.filter("cities")
-                .as("city")
-                .by(
-                        ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm)
-                );
-
         // First addFields operation to add 'filteredCities'
         AggregationOperation addFieldsFilteredCities = project("id", "name", "cities")
-                .and(filterCitiesExpression)
+                .and(ArrayOperators.Filter.filter("cities")
+                        .as("city")
+                        .by(ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm)))
                 .as("filteredCities");
 
-        // AggregationExpression for conditional logic for 'finalCities'
+        // Complex AggregationExpression for conditional logic for 'finalCities'
         AggregationExpression conditionalFinalCities = ConditionalOperators.when(
-                ComparisonOperators.Eq.valueOf(
-                        ArrayOperators.Size.lengthOfArray("filteredCities")
-                ).equalToValue(0)
+            ComparisonOperators.Gt.valueOf(
+                ArrayOperators.Size.lengthOfArray(
+                    ArrayOperators.Filter.filter("filteredCities")
+                            .as("city")
+                            .by(
+                                BooleanOperators.And.and(
+                                    ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm),
+                                    ComparisonOperators.Gt.valueOf("city.population").greaterThanValue(1000000)
+                                )
+                            )
+                )
+            ).greaterThanValue(0)
         )
         .then(
             ArrayOperators.Filter.filter("cities")
             .as("city")
             .by(
-                ComparisonOperators.Eq.valueOf("city.detail").equalToValue("new_city")
+                BooleanOperators.And.and(
+                    ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm),
+                    ComparisonOperators.Gt.valueOf("city.population").greaterThanValue(1000000)
+                )
             )
         )
-        .otherwise("$filteredCities");
+        .otherwise(
+            ConditionalOperators.when(
+                ComparisonOperators.Eq.valueOf(
+                    ArrayOperators.Size.lengthOfArray("filteredCities")
+                ).equalToValue(0)
+            )
+            .then(
+                ArrayOperators.Filter.filter("cities")
+                .as("city")
+                .by(
+                    ComparisonOperators.Eq.valueOf("city.detail").equalToValue("new_city")
+                )
+            )
+            .otherwise("$filteredCities")
+        );
 
         // Second addFields operation to add 'finalCities'
         AggregationOperation addFieldsFinalCities = project("id", "name")
