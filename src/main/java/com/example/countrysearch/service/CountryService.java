@@ -18,47 +18,48 @@ public class CountryService {
 
     public List<Country> findCountriesByCity(String searchTerm) {
 
-        // Expression for 'filteredCities'
-        AggregationOperation filterCities = project("id", "name", "cities")
+        // Filtering for condition "a"
+        AggregationOperation filterForA = project("id", "name", "cities")
                 .and(ArrayOperators.Filter.filter("cities")
                         .as("city")
                         .by(BooleanOperators.And.and(
                             ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm),
                             ComparisonOperators.Gt.valueOf("city.population").greaterThanValue(1000000)
                         )))
-                .as("filteredCities");
+                .as("filteredCitiesForA");
 
-        // Conditional logic for 'finalCities' a > b > c
-        AggregationExpression conditionalFinalCities = ConditionalOperators
-                .when(ComparisonOperators.Eq.valueOf(ArrayOperators.Size.lengthOfArray("filteredCities")).equalToValue(0))
-                .then(
-                    ConditionalOperators.when(
-                        ComparisonOperators.Eq.valueOf(ArrayOperators.Size.lengthOfArray(
-                                ArrayOperators.Filter.filter("cities")
-                                    .as("city")
-                                    .by(ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm))
-                        )).equalToValue(0)
-                    )
-                    .then(
-                        ArrayOperators.Filter.filter("cities")
-                            .as("city")
-                            .by(ComparisonOperators.Eq.valueOf("city.detail").equalToValue("new_city"))
-                    )
-                    .otherwise(
+        // Conditional logic to isolate condition "a"
+        AggregationExpression conditionalForA = ConditionalOperators.when(
+                ComparisonOperators.Eq.valueOf(ArrayOperators.Size.lengthOfArray("filteredCitiesForA")).equalToValue(0)
+        )
+        .then(
+            ConditionalOperators.when(
+                ComparisonOperators.Eq.valueOf(ArrayOperators.Size.lengthOfArray(
                         ArrayOperators.Filter.filter("cities")
                             .as("city")
                             .by(ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm))
-                    )
-                )
-                .otherwise("$filteredCities");
+                )).equalToValue(0)
+            )
+            .then(
+                ArrayOperators.Filter.filter("cities")
+                    .as("city")
+                    .by(ComparisonOperators.Eq.valueOf("city.detail").equalToValue("new_city"))
+            )
+            .otherwise(
+                ArrayOperators.Filter.filter("cities")
+                    .as("city")
+                    .by(ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm))
+            )
+        )
+        .otherwise("$filteredCitiesForA");
 
         // Project 'finalCities' 
         AggregationOperation projectFinal = project("id", "name")
-                .and(conditionalFinalCities).as("finalCities");
+                .and(conditionalForA).as("finalCities");
 
         // Build the aggregation pipeline
         Aggregation aggregation = Aggregation.newAggregation(
-                filterCities,
+                filterForA,
                 projectFinal
         );
 
