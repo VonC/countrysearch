@@ -18,66 +18,47 @@ public class CountryService {
 
     public List<Country> findCountriesByCity(String searchTerm) {
 
-        // First addFields operation to add 'filteredCities'
-        AggregationOperation addFieldsFilteredCities = project("id", "name", "cities")
+        // Expression for 'filteredCities'
+        AggregationOperation filterCities = project("id", "name", "cities")
                 .and(ArrayOperators.Filter.filter("cities")
                         .as("city")
-                        .by(ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm)))
+                        .by(BooleanOperators.And.and(
+                            ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm),
+                            ComparisonOperators.Gt.valueOf("city.population").greaterThanValue(1000000)
+                        )))
                 .as("filteredCities");
 
-        // Complex AggregationExpression for conditional logic for 'finalCities'
-        AggregationExpression conditionalFinalCities = ConditionalOperators.when(
-            ComparisonOperators.Gt.valueOf(
-                ArrayOperators.Size.lengthOfArray(
-                    ArrayOperators.Filter.filter("filteredCities")
+        // Conditional logic for 'finalCities' a > b > c
+        AggregationExpression conditionalFinalCities = ConditionalOperators
+                .when(ComparisonOperators.Eq.valueOf(ArrayOperators.Size.lengthOfArray("filteredCities")).equalToValue(0))
+                .then(
+                    ConditionalOperators.when(
+                        ComparisonOperators.Eq.valueOf(ArrayOperators.Size.lengthOfArray(
+                                ArrayOperators.Filter.filter("cities")
+                                    .as("city")
+                                    .by(ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm))
+                        )).equalToValue(0)
+                    )
+                    .then(
+                        ArrayOperators.Filter.filter("cities")
                             .as("city")
-                            .by(
-                                BooleanOperators.And.and(
-                                    ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm),
-                                    ComparisonOperators.Gt.valueOf("city.population").greaterThanValue(1000000)
-                                )
-                            )
+                            .by(ComparisonOperators.Eq.valueOf("city.detail").equalToValue("new_city"))
+                    )
+                    .otherwise(
+                        ArrayOperators.Filter.filter("cities")
+                            .as("city")
+                            .by(ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm))
+                    )
                 )
-            ).greaterThanValue(0)
-        )
-        .then(
-            ArrayOperators.Filter.filter("cities")
-            .as("city")
-            .by(
-                BooleanOperators.And.and(
-                    ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm),
-                    ComparisonOperators.Gt.valueOf("city.population").greaterThanValue(1000000)
-                )
-            )
-        )
-        .otherwise(
-            ConditionalOperators.when(
-                ComparisonOperators.Eq.valueOf(
-                    ArrayOperators.Size.lengthOfArray("filteredCities")
-                ).equalToValue(0)
-            )
-            .then(
-                ArrayOperators.Filter.filter("cities")
-                .as("city")
-                .by(
-                    ComparisonOperators.Eq.valueOf("city.detail").equalToValue("new_city")
-                )
-            )
-            .otherwise("$filteredCities")
-        );
+                .otherwise("$filteredCities");
 
-        // Second addFields operation to add 'finalCities'
-        AggregationOperation addFieldsFinalCities = project("id", "name")
-                .and(conditionalFinalCities).as("finalCities");
-
-        // Final project operation to shape the output
+        // Project 'finalCities' 
         AggregationOperation projectFinal = project("id", "name")
-                .and("finalCities").as("cities");
+                .and(conditionalFinalCities).as("finalCities");
 
         // Build the aggregation pipeline
         Aggregation aggregation = Aggregation.newAggregation(
-                addFieldsFilteredCities,
-                addFieldsFinalCities,
+                filterCities,
                 projectFinal
         );
 
