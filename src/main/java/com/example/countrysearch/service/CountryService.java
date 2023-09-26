@@ -3,8 +3,8 @@ package com.example.countrysearch.service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.aggregation.*;
-import org.springframework.stereotype.Service;
 import static org.springframework.data.mongodb.core.aggregation.Aggregation.project;
+import org.springframework.stereotype.Service;
 
 import com.example.countrysearch.model.Country;
 
@@ -23,39 +23,42 @@ public class CountryService {
                 .and(ArrayOperators.Filter.filter("cities")
                         .as("city")
                         .by(BooleanOperators.And.and(
-                            ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm),
-                            ComparisonOperators.Gt.valueOf("city.population").greaterThanValue(1000000)
+                                ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm),
+                                ComparisonOperators.Gt.valueOf("city.population").greaterThanValue(1000000)
                         )))
                 .as("filteredCitiesForA");
 
-        // Conditional logic to isolate condition "a"
-        AggregationExpression conditionalForA = ConditionalOperators.when(
-                ComparisonOperators.Eq.valueOf(ArrayOperators.Size.lengthOfArray("filteredCitiesForA")).equalToValue(0)
-        )
-        .then(
-            ConditionalOperators.when(
-                ComparisonOperators.Eq.valueOf(ArrayOperators.Size.lengthOfArray(
-                        ArrayOperators.Filter.filter("cities")
-                            .as("city")
-                            .by(ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm))
-                )).equalToValue(0)
-            )
-            .then(
-                ArrayOperators.Filter.filter("cities")
-                    .as("city")
-                    .by(ComparisonOperators.Eq.valueOf("city.detail").equalToValue("new_city"))
-            )
+        // Check whether any document strictly meets condition "a"
+        AggregationExpression sizeOfA = ArrayOperators.Size.lengthOfArray("filteredCitiesForA");
+        
+        // Check whether any document strictly meets condition "b"
+        AggregationExpression sizeOfB = ArrayOperators.Size.lengthOfArray(
+            ArrayOperators.Filter.filter("cities")
+                .as("city")
+                .by(ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm))
+        );
+
+        // Conditional Logic
+        AggregationExpression finalCondition = ConditionalOperators
+            .when(ComparisonOperators.Gt.valueOf(sizeOfA).greaterThanValue(0))
+            .then("$filteredCitiesForA")
             .otherwise(
-                ArrayOperators.Filter.filter("cities")
+                ConditionalOperators.when(ComparisonOperators.Gt.valueOf(sizeOfB).greaterThanValue(0))
+                .then(
+                    ArrayOperators.Filter.filter("cities")
                     .as("city")
                     .by(ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm))
-            )
-        )
-        .otherwise("$filteredCitiesForA");
+                )
+                .otherwise(
+                    ArrayOperators.Filter.filter("cities")
+                    .as("city")
+                    .by(ComparisonOperators.Eq.valueOf("city.detail").equalToValue("new_city"))
+                )
+            );
 
         // Project 'finalCities' 
         AggregationOperation projectFinal = project("id", "name")
-                .and(conditionalForA).as("finalCities");
+                .and(finalCondition).as("finalCities");
 
         // Build the aggregation pipeline
         Aggregation aggregation = Aggregation.newAggregation(
