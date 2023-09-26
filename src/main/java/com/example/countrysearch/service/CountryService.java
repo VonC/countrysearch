@@ -3,11 +3,10 @@ package com.example.countrysearch.service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.aggregation.*;
-import static org.springframework.data.mongodb.core.aggregation.Aggregation.project;
 import org.springframework.stereotype.Service;
+import static org.springframework.data.mongodb.core.aggregation.Aggregation.*;
 
 import com.example.countrysearch.model.Country;
-
 import java.util.List;
 
 @Service
@@ -17,56 +16,51 @@ public class CountryService {
     private MongoTemplate mongoTemplate;
 
     public List<Country> findCountriesByCity(String searchTerm) {
+        AggregationExpression conditionAExpr = ConditionalOperators.when(
+                BooleanOperators.And.and(
+                        ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm),
+                        ComparisonOperators.Gt.valueOf("city.population").greaterThanValue(1000000)
+                )
+        ).thenValueOf("$$KEEP").otherwise(null);
 
-        // Filtering for condition "a"
-        AggregationOperation filterForA = project("id", "name", "cities")
-                .and(ArrayOperators.Filter.filter("cities")
-                        .as("city")
-                        .by(BooleanOperators.And.and(
-                                ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm),
-                                ComparisonOperators.Gt.valueOf("city.population").greaterThanValue(1000000)
-                        )))
-                .as("filteredCitiesForA");
+        AggregationExpression conditionBExpr = ConditionalOperators.when(
+                ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm)
+        ).thenValueOf("$$KEEP").otherwise(null);
 
-        // Check whether any document strictly meets condition "a"
-        AggregationExpression sizeOfA = ArrayOperators.Size.lengthOfArray("filteredCitiesForA");
-        
-        // Check whether any document strictly meets condition "b"
-        AggregationExpression sizeOfB = ArrayOperators.Size.lengthOfArray(
-            ArrayOperators.Filter.filter("cities")
-                .as("city")
-                .by(ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm))
+        AggregationExpression conditionCExpr = ConditionalOperators.when(
+                ComparisonOperators.Eq.valueOf("city.detail").equalToValue("new_city")
+        ).thenValueOf("$$KEEP").otherwise(null);
+
+        Aggregation aggregation = newAggregation(
+                project("id", "name", "cities")
+                        .and(ArrayOperators.Filter.filter("cities")
+                                .as("city")
+                                .by(conditionAExpr))
+                        .as("conditionACities")
+                        .and(ArrayOperators.Filter.filter("cities")
+                                .as("city")
+                                .by(conditionBExpr))
+                        .as("conditionBCities")
+                        .and(ArrayOperators.Filter.filter("cities")
+                                .as("city")
+                                .by(conditionCExpr))
+                        .as("conditionCCities"),
+                project("id", "name")
+                        .and(
+                                ConditionalOperators.when(
+                                        ComparisonOperators.Eq.valueOf(
+                                                ArrayOperators.Size.lengthOfArray("conditionACities")
+                                        ).equalToValue(0)
+                                ).thenValueOf(
+                                        ConditionalOperators.when(
+                                                ComparisonOperators.Eq.valueOf(
+                                                        ArrayOperators.Size.lengthOfArray("conditionBCities")
+                                                ).equalToValue(0)
+                                        ).then("$conditionCCities").otherwise("$conditionBCities")
+                                ).otherwise("$conditionACities")
+                        ).as("finalCities")
         );
 
-        // Conditional Logic
-        AggregationExpression finalCondition = ConditionalOperators
-            .when(ComparisonOperators.Gt.valueOf(sizeOfA).greaterThanValue(0))
-            .then("$filteredCitiesForA")
-            .otherwise(
-                ConditionalOperators.when(ComparisonOperators.Gt.valueOf(sizeOfB).greaterThanValue(0))
-                .then(
-                    ArrayOperators.Filter.filter("cities")
-                    .as("city")
-                    .by(ComparisonOperators.Eq.valueOf("city.from").equalToValue(searchTerm))
-                )
-                .otherwise(
-                    ArrayOperators.Filter.filter("cities")
-                    .as("city")
-                    .by(ComparisonOperators.Eq.valueOf("city.detail").equalToValue("new_city"))
-                )
-            );
-
-        // Project 'finalCities' 
-        AggregationOperation projectFinal = project("id", "name")
-                .and(finalCondition).as("finalCities");
-
-        // Build the aggregation pipeline
-        Aggregation aggregation = Aggregation.newAggregation(
-                filterForA,
-                projectFinal
-        );
-
-        // Execute the aggregation
         AggregationResults<Country> result = mongoTemplate.aggregate(aggregation, "country", Country.class);
 
         return result.getMappedResults();
