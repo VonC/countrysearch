@@ -17,30 +17,23 @@ public class CountryService {
 
     public List<Country> findCountriesByCity(String searchTerm) {
 
-        // Define the conditional expressions for each case
-        ConditionalOperators.Cond aCondition = ConditionalOperators.when(
-                Criteria.where("cities.from").is(searchTerm).and("cities.population").gt(1000000))
-                .then("$$ROOT.cities")
-                .otherwise(null);
-
-        ConditionalOperators.Cond bCondition = ConditionalOperators.when(
-                Criteria.where("cities.from").is(searchTerm))
-                .then("$$ROOT.cities")
-                .otherwise(null);
-
-        ConditionalOperators.Cond cCondition = ConditionalOperators.when(
-                Criteria.where("cities.detail").is("new_city"))
-                .then("$$ROOT.cities")
-                .otherwise(null);
-
         // Unwind the cities
         UnwindOperation unwind = Aggregation.unwind("cities");
 
         // Apply the conditional logic
         ProjectionOperation project = Aggregation.project()
-                .and(aCondition).as("caseA")
-                .and(bCondition).as("caseB")
-                .and(cCondition).as("caseC")
+                .and(ConditionalOperators.when(
+                        Criteria.where("cities.from").is(searchTerm).and("cities.population").gt(1000000))
+                        .then("$$ROOT.cities")
+                        .otherwise(null)).as("caseA")
+                .and(ConditionalOperators.when(
+                        Criteria.where("cities.from").is(searchTerm))
+                        .then("$$ROOT.cities")
+                        .otherwise(null)).as("caseB")
+                .and(ConditionalOperators.when(
+                        Criteria.where("cities.detail").is("new_city"))
+                        .then("$$ROOT.cities")
+                        .otherwise(null)).as("caseC")
                 .and("name").as("name")
                 .and("_id").as("_id");
 
