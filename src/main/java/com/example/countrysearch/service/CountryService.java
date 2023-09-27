@@ -4,8 +4,8 @@ import com.example.countrysearch.model.Country;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.aggregation.*;
-import org.springframework.stereotype.Service;
 import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.stereotype.Service;
 
 import java.util.List;
 
@@ -15,46 +15,38 @@ public class CountryService {
     @Autowired
     private MongoTemplate mongoTemplate;
 
-    public List<Country> findCountriesByCity(String searchTerm) {
+    public List<Country> findCountriesByCity(String cityName) {
 
-        // Unwind the cities
+        // Unwind cities array
         UnwindOperation unwind = Aggregation.unwind("cities");
 
-        // Apply the conditional logic
-        ProjectionOperation project = Aggregation.project()
-                .and(ConditionalOperators.when(
-                        Criteria.where("cities.from").is(searchTerm).and("cities.population").gt(1000000))
-                        .then("$$ROOT.cities")
-                        .otherwise(null)).as("caseA")
-                .and(ConditionalOperators.when(
-                        Criteria.where("cities.from").is(searchTerm))
-                        .then("$$ROOT.cities")
-                        .otherwise(null)).as("caseB")
-                .and(ConditionalOperators.when(
-                        Criteria.where("cities.detail").is("new_city"))
-                        .then("$$ROOT.cities")
-                        .otherwise(null)).as("caseC")
-                .and("name").as("name")
-                .and("_id").as("_id");
+        // Perform conditional projection to determine cityPriority
+        ProjectionOperation projection = Aggregation.project("name", "cities")
+                .and(ConditionalOperators
+                        .when(Criteria.where("cities.from").is(cityName)
+                                .and("cities.population").gte(1000000))
+                        .then(true)
+                        .otherwise(ConditionalOperators
+                                .when(Criteria.where("cities.from").is(cityName))
+                                .then(true)
+                                .otherwise(false)
+                        )
+                ).as("cityPriority");
 
-        // Re-group by ID and name, prioritizing A over B over C
+        // Group by _id and prepare the final list of cities
         GroupOperation group = Aggregation.group("_id")
                 .first("name").as("name")
-                .push(ConditionalOperators.when(Criteria.where("caseA").ne(null)).then("caseA").otherwise(
-                        ConditionalOperators.when(Criteria.where("caseB").ne(null)).then("caseB").otherwise("caseC")
-                )).as("finalCities");
+                .push(Aggregation.ROOT).as("finalCities");
 
-        // Build the aggregation pipeline
+        // Create aggregation pipeline
         Aggregation aggregation = Aggregation.newAggregation(
                 unwind,
-                project,
-                group,
-                Aggregation.project("name", "finalCities")
+                projection,
+                group
         );
 
         // Execute the aggregation
-        AggregationResults<Country> results = mongoTemplate.aggregate(aggregation, Country.class, Country.class);
-
+        AggregationResults<Country> results = mongoTemplate.aggregate(aggregation, "country", Country.class);
         return results.getMappedResults();
     }
 }
